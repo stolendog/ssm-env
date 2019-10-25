@@ -47,7 +47,8 @@ func main() {
 	var (
 		template = flag.String("template", DefaultTemplate, "The template used to determine what the SSM parameter name is for an environment variable. When this template returns an empty string, the env variable is not an SSM parameter")
 		decrypt  = flag.Bool("with-decryption", false, "Will attempt to decrypt the parameter, and set the env var as plaintext")
-		nofail  = flag.Bool("no-fail", false, "Don't fail if error retrieving parameter")
+		nofail   = flag.Bool("no-fail", false, "Don't fail if error retrieving parameter")
+		clear    = flag.Bool("clear", false, "Use only SSM variables in environment")
 	)
 	flag.Parse()
 	args := flag.Args()
@@ -70,7 +71,7 @@ func main() {
 		ssm:       ssm.New(session.Must(awsSession())),
 		os:        os,
 	}
-	must(e.expandEnviron(*decrypt, *nofail))
+	must(e.expandEnviron(*decrypt, *nofail, *clear))
 	must(syscall.Exec(path, args[0:], os.Environ()))
 }
 
@@ -100,6 +101,7 @@ type ssmClient interface {
 type environ interface {
 	Environ() []string
 	Setenv(key, vale string)
+	Clearenv()
 }
 
 type osEnviron int
@@ -110,6 +112,10 @@ func (e osEnviron) Environ() []string {
 
 func (e osEnviron) Setenv(key, val string) {
 	os.Setenv(key, val)
+}
+
+func (e osEnviron) Clearenv() {
+	os.Clearenv()
 }
 
 type ssmVar struct {
@@ -137,7 +143,7 @@ func (e *expander) parameter(k, v string) (*string, error) {
 	return nil, nil
 }
 
-func (e *expander) expandEnviron(decrypt bool, nofail bool) error {
+func (e *expander) expandEnviron(decrypt bool, nofail bool, clear bool) error {
 	// Environment variables that point to some SSM parameters.
 	var ssmVars []ssmVar
 
@@ -159,6 +165,10 @@ func (e *expander) expandEnviron(decrypt bool, nofail bool) error {
 	if len(uniqNames) == 0 {
 		// Nothing to do, no SSM parameters.
 		return nil
+	}
+
+	if clear {
+		e.os.Clearenv()
 	}
 
 	names := make([]string, len(uniqNames))
@@ -202,12 +212,12 @@ func (e *expander) getParameters(names []string, decrypt bool, nofail bool) (map
 	}
 
 	resp, err := e.ssm.GetParameters(input)
-	if err != nil && ! nofail {
+	if err != nil && !nofail {
 		return values, err
 	}
 
 	if len(resp.InvalidParameters) > 0 {
-		if ! nofail {
+		if !nofail {
 			return values, newInvalidParametersError(resp)
 		}
 		fmt.Fprintf(os.Stderr, "ssm-env: %v\n", newInvalidParametersError(resp))

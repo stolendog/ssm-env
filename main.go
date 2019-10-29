@@ -162,13 +162,13 @@ func (e *expander) expandEnviron(decrypt bool, nofail bool, clear bool) error {
 		}
 	}
 
+	if clear {
+		e.os.Clearenv()
+	}
+
 	if len(uniqNames) == 0 {
 		// Nothing to do, no SSM parameters.
 		return nil
-	}
-
-	if clear {
-		e.os.Clearenv()
 	}
 
 	names := make([]string, len(uniqNames))
